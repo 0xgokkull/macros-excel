@@ -1,0 +1,187 @@
+Sub Pie_Chart()
+    Dim sel As Range
+    Set sel = Selection
+    If sel Is Nothing Or sel.Columns.count = 0 Then
+        MsgBox "Select column(s) first!", vbExclamation
+        Exit Sub
+    End If
+    
+    Dim ws As Worksheet: Set ws = ActiveSheet
+    
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    Worksheets("Pie Charts").Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    Dim cs As Worksheet
+    Set cs = Worksheets.Add
+    cs.Name = "Pie Charts"
+    
+    Dim col As Range, ChartNo As Long
+    ChartNo = 1
+    
+    For Each col In sel.Columns
+        Dim LR As Long
+        LR = ws.Cells(ws.Rows.count, col.Column).End(xlUp).row
+        If LR < 2 Then GoTo NextCol
+        
+        Dim rng As Range
+        Set rng = ws.Range(ws.Cells(2, col.Column), ws.Cells(LR, col.Column))
+        
+        Dim Title As String
+        Title = Trim(ws.Cells(1, col.Column).value)
+        If Title = "" Then Title = "Column " & col.Column
+        
+        Dim isAge As Boolean
+        isAge = (InStr(1, Title, "age", vbTextCompare) > 0 Or _
+                 InStr(1, Title, "years", vbTextCompare) > 0)
+        
+        Dim cat(1 To 1000) As String
+        Dim Frq(1 To 1000) As Long
+        Dim n As Long: n = 0
+        Dim GrandTotal As Long
+        GrandTotal = 0
+        
+        ' ====================== AGE COLUMN ======================
+        If isAge Then
+            Title = "Age group"
+            Dim AgeBins(1 To 5) As Long
+            Dim Labels(1 To 5) As String
+            Labels(1) = "<18"
+            Labels(2) = "18-30"
+            Labels(3) = "31-40"
+            Labels(4) = "41-50"
+            Labels(5) = "51-60"
+            
+            Dim cell As Range, a As Double
+            For Each cell In rng
+                If isNumeric(cell.value) And Not IsEmpty(cell.value) Then
+                    a = CDbl(cell.value)
+                    Select Case a
+                        Case Is < 18: AgeBins(1) = AgeBins(1) + 1
+                        Case 18 To 30: AgeBins(2) = AgeBins(2) + 1
+                        Case 31 To 40: AgeBins(3) = AgeBins(3) + 1
+                        Case 41 To 50: AgeBins(4) = AgeBins(4) + 1
+                        Case 51 To 60: AgeBins(5) = AgeBins(5) + 1
+                    End Select
+                End If
+            Next cell
+            
+            Dim i As Long
+            For i = 1 To 5
+                If AgeBins(i) > 0 Then
+                    n = n + 1
+                    cat(n) = Labels(i)
+                    Frq(n) = AgeBins(i)
+                    GrandTotal = GrandTotal + AgeBins(i)
+                End If
+            Next i
+        
+        ' ====================== NORMAL (TEXT) COLUMN ======================
+        Else
+            Dim c As Range, txt As String, j As Long, f As Boolean
+            For Each c In rng
+                If Not IsEmpty(c.value) Then
+                    txt = Trim(CStr(c.value))
+                    If txt <> "" Then
+                        f = False
+                        For j = 1 To n
+                            If cat(j) = txt Then
+                                Frq(j) = Frq(j) + 1
+                                GrandTotal = GrandTotal + 1
+                                f = True
+                                Exit For
+                            End If
+                        Next j
+                        If Not f Then
+                            n = n + 1
+                            cat(n) = txt
+                            Frq(n) = 1
+                            GrandTotal = GrandTotal + 1
+                        End If
+                    End If
+                End If
+            Next c
+        End If
+        
+        If n = 0 Then GoTo NextCol
+        
+        ' ====================== WRITE TABLE WITH PERCENTAGES ======================
+        Dim TopRow As Long
+        TopRow = (ChartNo - 1) * 30 + 1
+        
+        cs.Cells(TopRow, 1).value = Title
+        cs.Cells(TopRow, 1).Font.Bold = True
+        
+' HEADER ROW – use original column heading
+cs.Cells(TopRow + 1, 1).value = Title          ' <- this is the column header
+cs.Cells(TopRow + 1, 2).value = "Frequency (n)"
+cs.Cells(TopRow + 1, 3).value = "Percent (%)"
+        cs.Rows(TopRow + 1).Font.Bold = True
+        
+        ' DATA ROWS
+        Dim r As Long
+        For r = 1 To n
+            cs.Cells(TopRow + 1 + r, 1).value = cat(r)
+            cs.Cells(TopRow + 1 + r, 2).value = Frq(r)
+            ' Calculate and format percentage to 1 decimal place
+            cs.Cells(TopRow + 1 + r, 3).value = (Frq(r) / GrandTotal) * 100
+            cs.Cells(TopRow + 1 + r, 3).NumberFormat = "0"
+        Next r
+        
+        ' GRAND TOTAL ROW
+        cs.Cells(TopRow + 2 + n, 1).value = "Grand Total"
+        cs.Cells(TopRow + 2 + n, 2).value = GrandTotal
+        cs.Cells(TopRow + 2 + n, 3).value = 100
+        cs.Cells(TopRow + 2 + n, 3).NumberFormat = "0"
+        cs.Rows(TopRow + 2 + n).Font.Bold = True
+        
+        ' ====================== PIE CHART NEXT TO TABLE ======================
+        Dim tblTop As Double, tblLeft As Double, tblWidth As Double
+        tblTop = cs.Cells(TopRow, 1).Top
+        tblLeft = cs.Cells(TopRow, 1).Left
+        tblWidth = cs.Cells(TopRow, 1).Resize(3 + n, 3).width
+        
+        Dim ch As ChartObject
+        Set ch = cs.ChartObjects.Add(tblLeft + tblWidth + 80, tblTop, 420, 320)
+        
+        With ch.Chart
+            .SetSourceData Source:=cs.Range( _
+                cs.Cells(TopRow + 2, 1), _
+                cs.Cells(TopRow + 1 + n, 2))
+            .ChartType = xl3DPie
+            .HasTitle = True
+            .ChartTitle.Text = Title
+            .ChartTitle.Font.Size = 16
+            .ChartTitle.Font.Bold = True
+            .ApplyDataLabels
+            
+            With .SeriesCollection(1).DataLabels
+                .ShowValue = True
+                .ShowPercentage = False
+                .Position = xlLabelPositionOutsideEnd
+                .Font.Size = 12
+                .Font.Bold = True
+            End With
+            
+            .HasLegend = True
+            .Legend.Position = xlLegendPositionBottom
+            
+            .Elevation = 30
+            .Rotation = 0
+            .Perspective = 0
+            
+            .ChartArea.Format.Fill.ForeColor.RGB = vbWhite
+            .PlotArea.Format.Fill.ForeColor.RGB = vbWhite
+        End With
+        
+        ChartNo = ChartNo + 1
+        
+NextCol:
+    Next col
+    
+    cs.Columns("A:C").AutoFit
+    cs.Activate
+    MsgBox "All done! " & (ChartNo - 1) & " perfect charts created", vbInformation
+End Sub

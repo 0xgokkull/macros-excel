@@ -1,0 +1,163 @@
+Sub Scatter_Chart()
+
+    Dim sel As Range
+    Dim ws As Worksheet
+    Dim cs As Worksheet
+    Dim XCol As Range, YCol As Range
+    Dim XData As Range, YData As Range
+    Dim LastRowX As Long, LastRowY As Long
+    Dim N As Long, i As Long
+    Dim XArr() As Double
+    Dim chObj As ChartObject
+    Dim s As Series
+    Dim tl As Trendline
+    Dim seriesIndex As Long
+    
+    Set sel = Selection
+    If sel Is Nothing Then
+        MsgBox "Select one or more numeric columns.", vbExclamation
+        Exit Sub
+    End If
+    
+    Set ws = ActiveSheet
+    
+    ' Delete old chart sheet
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    Worksheets("Scatter Chart").Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    Set cs = Worksheets.Add(After:=ws)
+    cs.Name = "Scatter Chart"
+    
+    Set chObj = cs.ChartObjects.Add(40, 40, 500, 300)
+    With chObj.Chart
+        .ChartType = xlXYScatter
+        .HasLegend = True
+        .Legend.Position = xlLegendPositionRight
+        .ChartArea.Format.Fill.ForeColor.RGB = vbWhite
+        .PlotArea.Format.Fill.ForeColor.RGB = vbWhite
+    End With
+    
+    ' ================== CASE 1: SINGLE COLUMN ==================
+    If sel.Columns.count = 1 Then
+        
+        Dim YCol1 As Range, YData1 As Range
+        Set YCol1 = sel.Columns(1)
+        LastRowY = ws.Cells(ws.Rows.count, YCol1.Column).End(xlUp).row
+        If LastRowY < 2 Then
+            MsgBox "Not enough data.", vbExclamation
+            Exit Sub
+        End If
+        
+        Set YData1 = ws.Range(ws.Cells(2, YCol1.Column), ws.Cells(LastRowY, YCol1.Column))
+        N = YData1.Rows.count
+        
+        ReDim XArr(1 To N)
+        For i = 1 To N
+            XArr(i) = i
+        Next i
+        
+        With chObj.Chart
+            Set s = .SeriesCollection.NewSeries
+            With s
+                .Name = ws.Cells(1, YCol1.Column).value
+                .XValues = XArr
+                .Values = YData1
+                .MarkerStyle = xlMarkerStyleCircle
+                .MarkerSize = 7
+                .MarkerForegroundColor = RGB(79, 129, 189)
+                .MarkerBackgroundColor = RGB(79, 129, 189)
+            End With
+            
+            Set tl = .SeriesCollection(1).Trendlines.Add(Type:=xlLinear)
+            With tl.Format.Line
+                .Visible = msoTrue
+                .ForeColor.RGB = RGB(79, 129, 189)
+                .DashStyle = msoLineSysDot
+                .Weight = 1.5
+            End With
+            
+            .HasTitle = True
+            .ChartTitle.Text = ws.Cells(1, YCol1.Column).value
+            .Axes(xlCategory).HasTitle = False
+            .Axes(xlValue).HasTitle = False
+        End With
+        
+        cs.Activate
+        Exit Sub
+    End If
+    
+    ' =============== CASE 2: MULTIPLE COLUMNS =================
+    ' First column = X, others = Y1, Y2, ...
+    
+    Set XCol = sel.Columns(1)
+    LastRowX = ws.Cells(ws.Rows.count, XCol.Column).End(xlUp).row
+    If LastRowX < 2 Then
+        MsgBox "X column has no data.", vbExclamation
+        Exit Sub
+    End If
+    Set XData = ws.Range(ws.Cells(2, XCol.Column), ws.Cells(LastRowX, XCol.Column))
+    
+    seriesIndex = 0
+    
+    For Each YCol In sel.Columns
+        If YCol.Column <> XCol.Column Then
+            LastRowY = ws.Cells(ws.Rows.count, YCol.Column).End(xlUp).row
+            If LastRowY >= 2 Then
+                Set YData = ws.Range(ws.Cells(2, YCol.Column), ws.Cells(LastRowY, YCol.Column))
+                N = Application.WorksheetFunction.Min(XData.Rows.count, YData.Rows.count)
+                If N > 0 Then
+                    seriesIndex = seriesIndex + 1
+                    
+                    Set s = chObj.Chart.SeriesCollection.NewSeries
+                    With s
+                        .Name = ws.Cells(1, YCol.Column).value
+                        .XValues = XData.Resize(N, 1)
+                        .Values = YData.Resize(N, 1)
+                        .MarkerStyle = xlMarkerStyleCircle
+                        .MarkerSize = 7
+                        
+                        ' Color by series index
+                        Select Case seriesIndex
+                            Case 1
+                                .MarkerForegroundColor = RGB(79, 129, 189)   ' blue
+                                .MarkerBackgroundColor = RGB(79, 129, 189)
+                            Case 2
+                                .MarkerForegroundColor = RGB(192, 0, 0)     ' red
+                                .MarkerBackgroundColor = RGB(192, 0, 0)
+                            Case 3
+                                .MarkerForegroundColor = RGB(0, 176, 80)    ' green
+                                .MarkerBackgroundColor = RGB(0, 176, 80)
+                            Case Else
+                                .MarkerForegroundColorIndex = xlColorIndexAutomatic
+                                .MarkerBackgroundColorIndex = xlColorIndexAutomatic
+                        End Select
+                    End With
+                End If
+            End If
+        End If
+    Next YCol
+    
+    ' Trendline on first Y series
+    If chObj.Chart.SeriesCollection.count > 0 Then
+        Set tl = chObj.Chart.SeriesCollection(1).Trendlines.Add(Type:=xlLinear)
+        With tl.Format.Line
+            .Visible = msoTrue
+            .ForeColor.RGB = RGB(79, 129, 189)
+            .DashStyle = msoLineSysDot
+            .Weight = 1.5
+        End With
+    End If
+    
+    With chObj.Chart
+        .HasTitle = True
+        .ChartTitle.Text = ws.Cells(1, XCol.Column).value & " vs selected"
+        .Axes(xlCategory).HasTitle = True
+        .Axes(xlCategory).AxisTitle.Text = ws.Cells(1, XCol.Column).value
+        .Axes(xlValue).HasTitle = False
+    End With
+    
+    cs.Activate
+End Sub

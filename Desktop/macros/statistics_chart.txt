@@ -1,0 +1,109 @@
+Sub Statistics_Chart()
+
+    Dim sel As Range, ws As Worksheet, outWS As Worksheet
+    Dim col As Range, dataRng As Range
+    Dim lastRow As Long
+    Dim rowOut As Long
+    Dim N As Long
+    Dim meanVal As Double, minVal As Double, maxVal As Double
+    Dim stdVal As Double
+    Dim Title As String
+    Dim i As Long
+    
+    If Selection Is Nothing Then
+        MsgBox "Select one or more columns first.", vbExclamation
+        Exit Sub
+    End If
+    
+    Set sel = Selection
+    Set ws = ActiveSheet
+    
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    ThisWorkbook.Worksheets("Descriptive Stats").Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+    
+    Set outWS = ThisWorkbook.Worksheets.Add
+    outWS.Name = "Descriptive Stats"
+    
+    ' title row
+    outWS.Cells(1, 1).value = "Descriptive Statistics"
+    outWS.Cells(1, 1).Font.Bold = True
+    outWS.Cells(1, 1).Font.Size = 14
+    
+    ' header row
+    outWS.Cells(2, 1).value = "Descriptive Analysis"
+    outWS.Cells(2, 2).value = "N"
+    outWS.Cells(2, 3).value = "Minimum"
+    outWS.Cells(2, 4).value = "Maximum"
+    outWS.Cells(2, 5).value = "Mean"
+    outWS.Cells(2, 6).value = "Std. Deviation"
+    outWS.Range("A2:F2").Font.Bold = True
+    outWS.Range("A2:F2").Font.Size = 12
+    
+    rowOut = 3
+    
+    For Each col In sel.Columns
+        
+        lastRow = ws.Cells(ws.Rows.count, col.Column).End(xlUp).row
+        If lastRow < 2 Then GoTo NextCol
+        
+        Set dataRng = ws.Range(ws.Cells(2, col.Column), ws.Cells(lastRow, col.Column))
+        
+        ' numeric count
+        N = WorksheetFunction.count(dataRng)
+        If N = 0 Then GoTo NextCol
+        
+        Title = Trim(ws.Cells(1, col.Column).value & "")
+        If Title = "" Then Title = "Column " & col.Column
+        
+        ' statistics
+        meanVal = WorksheetFunction.Average(dataRng)
+        minVal = WorksheetFunction.Min(dataRng)
+        maxVal = WorksheetFunction.Max(dataRng)
+        stdVal = WorksheetFunction.StDev_S(dataRng)
+        
+        ' write row
+        With outWS
+            .Cells(rowOut, 1).value = Title
+            .Cells(rowOut, 2).value = N
+            .Cells(rowOut, 3).value = minVal
+            .Cells(rowOut, 4).value = maxVal
+            .Cells(rowOut, 5).value = meanVal
+            .Cells(rowOut, 6).value = stdVal
+            .Range(.Cells(rowOut, 1), .Cells(rowOut, 6)).Font.Size = 11
+            .Range(.Cells(rowOut, 3), .Cells(rowOut, 6)).NumberFormat = "0.00"
+        End With
+        
+        rowOut = rowOut + 1
+        
+NextCol:
+    Next col
+    
+    ' column widths (Mac-safe)
+    With outWS
+        .Columns("A").EntireColumn.ColumnWidth = 25
+        .Columns("B").EntireColumn.ColumnWidth = 12
+        .Columns("C").EntireColumn.ColumnWidth = 15
+        .Columns("D").EntireColumn.ColumnWidth = 15
+        .Columns("E").EntireColumn.ColumnWidth = 15
+        .Columns("F").EntireColumn.ColumnWidth = 18
+    End With
+    
+    ' row heights
+    outWS.Rows(1).RowHeight = 25
+    outWS.Rows(2).RowHeight = 20
+    For i = 3 To rowOut - 1
+        outWS.Rows(i).RowHeight = 20
+    Next i
+    
+    ' borders
+    With outWS.Range(outWS.Cells(1, 1), outWS.Cells(rowOut - 1, 6))
+        .Borders.LineStyle = xlContinuous
+    End With
+    
+    outWS.Activate
+    MsgBox "Descriptive statistics table created on 'Descriptive Stats'.", vbInformation
+
+End Sub

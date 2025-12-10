@@ -1,0 +1,171 @@
+Sub LineChart_Averages()
+
+    Dim ws As Worksheet, outWS As Worksheet
+    Dim rng As Range
+    Dim firstCol As Long
+    Dim lastRow As Long
+    Dim r As Long, i As Long, c As Long
+    Dim grp As String
+    Dim grpList() As String
+    Dim grpCount As Long
+    Dim sums() As Double, cnts() As Long
+    Dim ch As ChartObject
+    Dim nVars As Long
+    Dim v As Variant
+    Dim found As Boolean
+    Dim lastSelCol As Long
+
+    '===== selection: ONE OR MORE numeric columns; group is fixed in column A =====
+    If Selection Is Nothing Then
+        MsgBox "Select at least ONE numeric column.", vbExclamation
+        Exit Sub
+    End If
+    If Selection.Columns.count < 1 Then
+        MsgBox "Select at least ONE numeric column.", vbExclamation
+        Exit Sub
+    End If
+    If Selection.Areas.count > 1 Then
+        MsgBox "Use one continuous block of columns (no disjoint selections).", vbExclamation
+        Exit Sub
+    End If
+
+    Set ws = ActiveSheet
+
+    'Group column is always A
+    firstCol = 1
+    lastRow = ws.Cells(ws.Rows.count, firstCol).End(xlUp).row
+    If lastRow < 2 Then
+        MsgBox "Not enough data.", vbExclamation
+        Exit Sub
+    End If
+
+    'Build data range: column A (group) + selected numeric columns
+    lastSelCol = Selection.Columns(Selection.Columns.count).Column
+    Set rng = ws.Range(ws.Cells(1, firstCol), ws.Cells(lastRow, lastSelCol))
+
+    nVars = rng.Columns.count - 1          'numeric columns count
+
+    '===== collect unique groups into grpList() =====
+    ReDim grpList(0 To lastRow - 2)
+    grpCount = 0
+
+    For r = 2 To lastRow
+        grp = Trim(CStr(rng.Cells(r, 1).value))
+        If grp <> "" Then
+            found = False
+            For i = 0 To grpCount - 1
+                If grpList(i) = grp Then
+                    found = True
+                    Exit For
+                End If
+            Next i
+            If Not found Then
+                grpList(grpCount) = grp
+                grpCount = grpCount + 1
+            End If
+        End If
+    Next r
+
+    If grpCount = 0 Then
+        MsgBox "No valid groups found in column A.", vbExclamation
+        Exit Sub
+    End If
+
+    ReDim Preserve grpList(0 To grpCount - 1)
+    BubbleSortStrings grpList
+
+    '===== sums and counts arrays =====
+    ReDim sums(0 To grpCount - 1, 0 To nVars - 1)
+    ReDim cnts(0 To grpCount - 1, 0 To nVars - 1)
+
+    '===== accumulate sums and counts =====
+    For r = 2 To lastRow
+        grp = Trim(CStr(rng.Cells(r, 1).value))
+        If grp <> "" Then
+            For i = 0 To grpCount - 1
+                If grpList(i) = grp Then
+                    For c = 2 To rng.Columns.count
+                        v = rng.Cells(r, c).value
+                        If isNumeric(v) And Not IsEmpty(v) And v <> "" Then
+                            sums(i, c - 2) = sums(i, c - 2) + CDbl(v)
+                            cnts(i, c - 2) = cnts(i, c - 2) + 1
+                        End If
+                    Next c
+                    Exit For
+                End If
+            Next i
+        End If
+    Next r
+
+    '===== create/reset output sheet "linechart" =====
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    ThisWorkbook.Sheets("linechart").Delete
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+
+    Set outWS = ThisWorkbook.Sheets.Add
+    outWS.Name = "linechart"
+
+    '===== header row: first col blank, then groups =====
+    outWS.Cells(1, 1).value = ""
+    For i = 0 To grpCount - 1
+        outWS.Cells(1, i + 2).value = grpList(i)
+    Next i
+
+    '===== row labels from selected numeric headers =====
+    'rows 2..(nVars+1)
+    For c = 2 To rng.Columns.count
+        outWS.Cells(c, 1).value = "Average of " & rng.Cells(1, c).value
+    Next c
+
+    '===== fill averages =====
+    For i = 0 To grpCount - 1
+        For c = 2 To rng.Columns.count
+            If cnts(i, c - 2) > 0 Then
+                outWS.Cells(c, i + 2).value = sums(i, c - 2) / cnts(i, c - 2)
+            Else
+                outWS.Cells(c, i + 2).value = ""
+            End If
+        Next c
+    Next i
+
+    outWS.Columns.AutoFit
+
+    '===== create line chart from this table =====
+    Set ch = outWS.ChartObjects.Add( _
+                Left:=100, _
+                Top:=outWS.Cells(nVars + 3, 1).Top, _
+                width:=650, Height:=350)
+
+    With ch.Chart
+        .SetSourceData outWS.Range( _
+            outWS.Cells(1, 1), _
+            outWS.Cells(nVars + 1, grpCount + 1))
+        .ChartType = xlLineMarkers
+        .HasTitle = True
+        .ChartTitle.Text = "Average of selected variables by " & ws.Cells(1, 1).value
+        .HasLegend = True
+        .Legend.Position = xlLegendPositionBottom
+        .Axes(xlCategory).TickLabels.Orientation = 0
+    End With
+
+    outWS.Activate
+    MsgBox "Average table and line chart created on sheet 'linechart'.", vbInformation
+
+End Sub
+
+'===== helper: bubble sort strings =====
+Sub BubbleSortStrings(arr() As String)
+    Dim i As Long, j As Long
+    Dim temp As String
+    For i = LBound(arr) To UBound(arr) - 1
+        For j = i + 1 To UBound(arr)
+            If arr(i) > arr(j) Then
+                temp = arr(i)
+                arr(i) = arr(j)
+                arr(j) = temp
+            End If
+        Next j
+    Next i
+End Sub

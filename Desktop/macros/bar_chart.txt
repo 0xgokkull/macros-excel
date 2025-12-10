@@ -1,0 +1,257 @@
+Sub Bar_Chart()
+    Dim sel As Range
+    Set sel = Selection
+    
+    ' Allow 1 or many columns
+    If sel Is Nothing Then
+        MsgBox "Please select one or more full columns!", vbExclamation
+        Exit Sub
+    End If
+    If sel.Columns.count = 0 Then
+        MsgBox "Please select one or more full columns!", vbExclamation
+        Exit Sub
+    End If
+    
+    Dim srcWS As Worksheet: Set srcWS = ActiveSheet
+    
+    ' Delete old sheet if exists
+    On Error Resume Next
+    Application.DisplayAlerts = False
+    Worksheets("Frequency Charts").Delete
+    Application.DisplayAlerts = True
+    On Error GoTo 0
+    
+    Dim outWS As Worksheet
+    Set outWS = Worksheets.Add(After:=srcWS)
+    outWS.Name = "Frequency Charts"
+    
+    Dim col As Range
+    Dim TopRow As Long: TopRow = 1
+    
+    For Each col In sel.Columns
+        Dim lastRow As Long
+        lastRow = srcWS.Cells(srcWS.Rows.count, col.Column).End(xlUp).row
+        If lastRow < 2 Then GoTo NextColumn
+        
+        Dim dataRng As Range
+        Set dataRng = srcWS.Range(srcWS.Cells(2, col.Column), srcWS.Cells(lastRow, col.Column))
+        
+        Dim Title As String
+        Title = Trim(srcWS.Cells(1, col.Column).value)
+        If Title = "" Then Title = srcWS.Cells(1, col.Column).Address(0, 0)
+        
+        ' detect numeric
+        Dim IsNumericCol As Boolean: IsNumericCol = True
+        Dim test As Range
+        For Each test In dataRng
+            If Not IsEmpty(test) Then
+                If Not isNumeric(test.value) Or test.value = "" Then
+                    IsNumericCol = False
+                    Exit For
+                End If
+            End If
+        Next test
+        
+        Dim GrandTotal As Long
+        outWS.Cells(TopRow, 1).Resize(100, 10).Clear
+        
+        ' ================= NUMERIC COLUMN =================
+        If IsNumericCol Then
+            Dim Freq(1 To 5) As Long
+            Dim Labels(1 To 5) As String
+            Labels(1) = "<18"
+            Labels(2) = "18-30"
+            Labels(3) = "31-40"
+            Labels(4) = "41-50"
+            Labels(5) = "51-60"
+            
+            Dim cell As Range, v As Double
+            For Each cell In dataRng
+                If isNumeric(cell.value) And cell.value <> "" Then
+                    v = CDbl(cell.value)
+                    Select Case v
+                        Case Is < 18: Freq(1) = Freq(1) + 1
+                        Case 18 To 30: Freq(2) = Freq(2) + 1
+                        Case 31 To 40: Freq(3) = Freq(3) + 1
+                        Case 41 To 50: Freq(4) = Freq(4) + 1
+                        Case 51 To 60: Freq(5) = Freq(5) + 1
+                    End Select
+                End If
+            Next cell
+            
+            Dim i As Long
+            GrandTotal = 0
+            For i = 1 To 5
+                GrandTotal = GrandTotal + Freq(i)
+            Next i
+            
+            With outWS
+                .Cells(TopRow, 1).value = Title
+                .Cells(TopRow, 1).Font.Bold = True
+                
+                ' HEADER WITH 3 COLUMNS
+                .Cells(TopRow + 1, 1).value = "Age Group"
+                .Cells(TopRow + 1, 2).value = "Count of " & Title
+                .Cells(TopRow + 1, 3).value = "Percent (%)"
+                .Range("A" & TopRow + 1 & ":C" & TopRow + 1).Font.Bold = True
+                .Range("A" & TopRow + 1 & ":C" & TopRow + 1).Interior.Color = RGB(200, 200, 200)
+                
+                For i = 1 To 5
+                    .Cells(TopRow + 1 + i, 1).value = Labels(i)
+                    .Cells(TopRow + 1 + i, 2).value = Freq(i)
+                    ' Calculate percentage
+                    If GrandTotal > 0 Then
+                        .Cells(TopRow + 1 + i, 3).value = (Freq(i) / GrandTotal) * 100
+                        .Cells(TopRow + 1 + i, 3).NumberFormat = "0"
+                    End If
+                Next i
+                
+                .Cells(TopRow + 7, 1).value = "Grand Total"
+                .Cells(TopRow + 7, 2).value = GrandTotal
+                .Cells(TopRow + 7, 3).value = 100
+                .Cells(TopRow + 7, 3).NumberFormat = "0"
+                With .Rows(TopRow + 7)
+                    .Font.Bold = True
+                    .Interior.Color = RGB(220, 230, 241)
+                End With
+            End With
+            
+            ' chart to the right of numeric table, width = 420
+            Dim ch As ChartObject
+            Dim tblLeft As Double, tblTop As Double, tblWidth As Double
+            tblTop = outWS.Cells(TopRow, 1).Top
+            tblLeft = outWS.Cells(TopRow, 1).Left
+            tblWidth = outWS.Cells(TopRow, 1).Resize(7, 3).width  ' 7 rows, 3 cols now
+            
+            Set ch = outWS.ChartObjects.Add(tblLeft + tblWidth + 80, tblTop, 420, 320)
+            With ch.Chart
+                .SetSourceData Source:=outWS.Range("A" & TopRow + 1 & ":B" & TopRow + 6)
+                .ChartType = xlColumnClustered
+                .HasTitle = True
+                .ChartTitle.Text = Title & " (Age Distribution)"
+                .ApplyDataLabels
+                .SeriesCollection(1).DataLabels.ShowValue = True
+                .SeriesCollection(1).DataLabels.Position = xlLabelPositionOutsideEnd
+                .SeriesCollection(1).DataLabels.Font.Size = 11
+                .SeriesCollection(1).DataLabels.Font.Bold = True
+                .Legend.Position = xlLegendPositionBottom
+                .ChartArea.Format.Fill.ForeColor.RGB = vbWhite
+                .PlotArea.Format.Fill.ForeColor.RGB = vbWhite
+                .Axes(xlCategory).TickLabels.Font.Size = 10
+            End With
+            
+            TopRow = TopRow + 40
+            
+        ' ================= TEXT / CATEGORICAL COLUMN =================
+        Else
+            Dim cat() As String: ReDim cat(1 To 1000)
+            Dim cnt() As Long: ReDim cnt(1 To 1000)
+            Dim N As Long: N = 0
+            
+            Dim txt As String
+            Dim j As Long
+            Dim found As Boolean
+            
+            For Each cell In dataRng
+                If Not IsEmpty(cell) Then
+                    txt = Trim(CStr(cell.value))
+                    If txt <> "" Then
+                        found = False
+                        For j = 1 To N
+                            If StrComp(cat(j), txt, vbTextCompare) = 0 Then
+                                cnt(j) = cnt(j) + 1
+                                found = True
+                                Exit For
+                            End If
+                        Next j
+                        If Not found Then
+                            N = N + 1
+                            If N > UBound(cat) Then
+                                ReDim Preserve cat(1 To N + 500)
+                                ReDim Preserve cnt(1 To N + 500)
+                            End If
+                            cat(N) = txt
+                            cnt(N) = 1
+                        End If
+                    End If
+                End If
+            Next cell
+            
+            GrandTotal = 0
+            For j = 1 To N
+                GrandTotal = GrandTotal + cnt(j)
+            Next j
+            
+            Dim tempCat As String, tempCnt As Long, r As Long
+            For i = 1 To N - 1
+                For j = i + 1 To N
+                    If cnt(i) < cnt(j) Then
+                        tempCat = cat(i): cat(i) = cat(j): cat(j) = tempCat
+                        tempCnt = cnt(i): cnt(i) = cnt(j): cnt(j) = tempCnt
+                    End If
+                Next j
+            Next i
+            
+            With outWS
+                .Cells(TopRow, 1).value = Title
+                .Cells(TopRow, 1).Font.Bold = True
+                
+                ' HEADER WITH 3 COLUMNS
+                .Cells(TopRow + 1, 1).value = Title
+                .Cells(TopRow + 1, 2).value = "Count of " & Title
+                .Cells(TopRow + 1, 3).value = "Percent (%)"
+                .Range("A" & TopRow + 1 & ":C" & TopRow + 1).Font.Bold = True
+                .Range("A" & TopRow + 1 & ":C" & TopRow + 1).Interior.Color = RGB(200, 200, 200)
+                
+                For r = 1 To N
+                    .Cells(TopRow + 1 + r, 1).value = cat(r)
+                    .Cells(TopRow + 1 + r, 2).value = cnt(r)
+                    ' Calculate percentage
+                    If GrandTotal > 0 Then
+                        .Cells(TopRow + 1 + r, 3).value = (cnt(r) / GrandTotal) * 100
+                        .Cells(TopRow + 1 + r, 3).NumberFormat = "0"
+                    End If
+                Next r
+                
+                .Cells(TopRow + 2 + N, 1).value = "Grand Total"
+                .Cells(TopRow + 2 + N, 2).value = GrandTotal
+                .Cells(TopRow + 2 + N, 3).value = 100
+                .Cells(TopRow + 2 + N, 3).NumberFormat = "0"
+                With .Rows(TopRow + 2 + N)
+                    .Font.Bold = True
+                    .Interior.Color = RGB(220, 230, 241)
+                End With
+            End With
+            
+            ' chart to the right of text table, width = 420
+            tblTop = outWS.Cells(TopRow, 1).Top
+            tblLeft = outWS.Cells(TopRow, 1).Left
+            tblWidth = outWS.Cells(TopRow, 1).Resize(2 + N, 3).width  ' 3 cols now
+            
+            Set ch = outWS.ChartObjects.Add(tblLeft + tblWidth + 80, tblTop, 420, 320)
+            With ch.Chart
+                .SetSourceData Source:=outWS.Range("A" & TopRow + 1 & ":B" & TopRow + 1 + N)
+                .ChartType = xlColumnClustered
+                .HasTitle = True
+                .ChartTitle.Text = Title
+                .ApplyDataLabels
+                .SeriesCollection(1).DataLabels.ShowValue = True
+                .SeriesCollection(1).DataLabels.Position = xlLabelPositionOutsideEnd
+                .SeriesCollection(1).DataLabels.Font.Size = 10
+                .SeriesCollection(1).DataLabels.Font.Bold = True
+                .Legend.Position = xlLegendPositionBottom
+                .ChartArea.Format.Fill.ForeColor.RGB = vbWhite
+                .PlotArea.Format.Fill.ForeColor.RGB = vbWhite
+            End With
+            
+            TopRow = TopRow + Application.WorksheetFunction.Max(40, N + 10)
+        End If
+        
+NextColumn:
+    Next col
+    
+    outWS.Columns("A:C").AutoFit
+    outWS.Columns("A").HorizontalAlignment = xlLeft
+    outWS.Activate
+    outWS.Cells(1, 1).Select
+End Sub
