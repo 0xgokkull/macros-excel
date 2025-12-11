@@ -1,37 +1,65 @@
-Sub DoubleBar_Chart()
+Option Explicit
+
+Sub GroupBar_Chart()
 
     Dim ws As Worksheet, outWS As Worksheet
-    Dim rng As Range
+    Dim rng As Range, col1 As Range, col2 As Range, ar As Range
     Dim lastRow As Long, r As Long, i As Long, j As Long
     Dim cat As String, grp As String
     Dim catList() As String, grpList() As String
     Dim catCount As Long, grpCount As Long
     Dim counts() As Long
     Dim ch As ChartObject
-    
-    ' ===== check selection =====
-    If Selection.Columns.count <> 2 Or Selection.Areas.count > 1 Then
+    Dim totalCols As Long
+
+    ' ===== check selection: allow any 2 columns (contiguous or not) =====
+    If TypeName(Selection) <> "Range" Then
+        MsgBox "Select two columns first.", vbExclamation
+        Exit Sub
+    End If
+
+    totalCols = 0
+    For Each ar In Selection.Areas
+        totalCols = totalCols + ar.Columns.Count
+    Next ar
+
+    If totalCols <> 2 Then
         MsgBox "Please select EXACTLY two columns:" & vbCrLf & _
                "• First column = categories (row headings, e.g. StudyGroup)" & vbCrLf & _
                "• Second column = groups (Male/Female, Group A/B, etc.)", vbExclamation
         Exit Sub
     End If
-    
-    Set rng = Selection
-    lastRow = rng.Cells(rng.Rows.count, 1).End(xlUp).row
+
+    ' determine the two selected columns
+    If Selection.Areas.Count = 1 Then
+        Set col1 = Selection.Columns(1)
+        Set col2 = Selection.Columns(2)
+    Else
+        Set col1 = Selection.Areas(1).Columns(1)
+        Set col2 = Selection.Areas(2).Columns(1)
+    End If
+
+    Set ws = col1.Worksheet
+
+    ' last row = max used row of the two columns
+    lastRow = ws.Cells(ws.Rows.Count, col1.Column).End(xlUp).Row
+    If ws.Cells(ws.Rows.Count, col2.Column).End(xlUp).Row > lastRow Then
+        lastRow = ws.Cells(ws.Rows.Count, col2.Column).End(xlUp).Row
+    End If
     If lastRow < 2 Then
         MsgBox "Not enough data.", vbExclamation
         Exit Sub
     End If
-    
-    Set rng = rng.Resize(lastRow, 2)
-    Set ws = rng.Worksheet
-    
+
+    ' build 2‑column range (category + group)
+    Set rng = ws.Range(ws.Cells(1, col1.Column), ws.Cells(lastRow, col1.Column))
+    Set rng = Union(rng, ws.Range(ws.Cells(1, col2.Column), ws.Cells(lastRow, col2.Column)))
+
     ' ===== collect unique categories (first column), then sort =====
     ReDim catList(0 To lastRow - 2)
     catCount = 0
     For r = 2 To lastRow
-        cat = Trim(rng.Cells(r, 1).value & "")
+        cat = Trim(ws.Cells(r, col1.Column).Value & "")
         If cat <> "" Then
             If Not InArray(catList, catCount, cat) Then
                 catList(catCount) = cat
@@ -45,12 +73,12 @@ Sub DoubleBar_Chart()
     End If
     ReDim Preserve catList(0 To catCount - 1)
     BubbleSort catList
-    
+
     ' ===== collect unique groups (second column) =====
     ReDim grpList(0 To lastRow - 2)
     grpCount = 0
     For r = 2 To lastRow
-        grp = Trim(rng.Cells(r, 2).value & "")
+        grp = Trim(ws.Cells(r, col2.Column).Value & "")
         If grp <> "" Then
             If Not InArray(grpList, grpCount, grp) Then
                 grpList(grpCount) = grp
@@ -63,12 +91,12 @@ Sub DoubleBar_Chart()
         Exit Sub
     End If
     ReDim Preserve grpList(0 To grpCount - 1)
-    
+
     ' ===== count frequencies for each (category, group) =====
     ReDim counts(0 To catCount - 1, 0 To grpCount - 1)
     For r = 2 To lastRow
-        cat = Trim(rng.Cells(r, 1).value & "")
-        grp = Trim(rng.Cells(r, 2).value & "")
+        cat = Trim(ws.Cells(r, col1.Column).Value & "")
+        grp = Trim(ws.Cells(r, col2.Column).Value & "")
         If cat <> "" And grp <> "" Then
             For i = 0 To catCount - 1
                 If catList(i) = cat Then
@@ -83,73 +111,72 @@ Sub DoubleBar_Chart()
             Next i
         End If
     Next r
-    
+
     ' ===== create / reset output sheet =====
     Application.DisplayAlerts = False
     On Error Resume Next
     ThisWorkbook.Sheets("Group Chart").Delete
     On Error GoTo 0
     Application.DisplayAlerts = True
-    
+
     Set outWS = ThisWorkbook.Sheets.Add
     outWS.Name = "Group Chart"
-    
+
     ' ===== write contingency table =====
-    outWS.Cells(1, 1).value = rng.Cells(1, 1).value   ' first column header
-    
-    For j = 0 To grpCount - 1                         ' group headers
-        outWS.Cells(1, j + 2).value = grpList(j)
+    outWS.Cells(1, 1).Value = ws.Cells(1, col1.Column).Value   ' first column header
+
+    For j = 0 To grpCount - 1
+        outWS.Cells(1, j + 2).Value = grpList(j)
     Next j
-    outWS.Cells(1, grpCount + 2).value = "Grand Total"
-    
+    outWS.Cells(1, grpCount + 2).Value = "Grand Total"
+
     Dim rowTotal As Long
     For i = 0 To catCount - 1
-        outWS.Cells(i + 2, 1).value = catList(i)
+        outWS.Cells(i + 2, 1).Value = catList(i)
         rowTotal = 0
         For j = 0 To grpCount - 1
-            outWS.Cells(i + 2, j + 2).value = counts(i, j)
+            outWS.Cells(i + 2, j + 2).Value = counts(i, j)
             rowTotal = rowTotal + counts(i, j)
         Next j
-        outWS.Cells(i + 2, grpCount + 2).value = rowTotal
+        outWS.Cells(i + 2, grpCount + 2).Value = rowTotal
     Next i
-    
-    outWS.Cells(catCount + 2, 1).value = "Grand Total"
+
+    outWS.Cells(catCount + 2, 1).Value = "Grand Total"
     For j = 0 To grpCount - 1
         outWS.Cells(catCount + 2, j + 2).FormulaR1C1 = _
             "=SUM(R2C" & (j + 2) & ":R" & (catCount + 1) & "C" & (j + 2) & ")"
     Next j
     outWS.Cells(catCount + 2, grpCount + 2).FormulaR1C1 = _
         "=SUM(R2C" & (grpCount + 2) & ":R" & (catCount + 1) & "C" & (grpCount + 2) & ")"
-    
+
     With outWS.Range("A1", outWS.Cells(1, grpCount + 2))
         .Font.Bold = True
         .Interior.Color = RGB(200, 200, 200)
     End With
     outWS.Columns.AutoFit
-    
-    ' ===== create grouped (clustered) column chart, thin bars, big gaps =====
+
+    ' ===== create grouped (clustered) column chart =====
     Set ch = outWS.ChartObjects.Add( _
                 Left:=100, _
                 Top:=outWS.Cells(catCount + 5, 1).Top, _
-                width:=650, Height:=350)
-    
+                Width:=650, Height:=350)
+
     With ch.Chart
         .SetSourceData outWS.Range("A1", outWS.Cells(catCount + 1, grpCount + 1))
         .PlotBy = xlColumns
         .ChartType = xlColumnClustered
-        
-        ' geometry: more gap & thinner bars
-        .ColumnGroups(1).Overlap = -40   ' big separation between bars in each pair
-        .ColumnGroups(1).GapWidth = 220  ' thin bars and extra gap between categories
-        
+
+        .ColumnGroups(1).Overlap = -40
+        .ColumnGroups(1).GapWidth = 220
+
         .HasTitle = True
-        .ChartTitle.Text = rng.Cells(1, 1).value & " by " & rng.Cells(1, 2).value
-        .HasLegend = True
-        .Legend.Position = xlLegendPositionBottom
+        .ChartTitle.Text = ws.Cells(1, col1.Column).Value & " by " & ws.Cells(1, col2.Column).Value
+
+        .HasLegend = False          ' no indication area on right
         .ApplyDataLabels
         .Axes(xlCategory).TickLabels.Orientation = 0
     End With
-    
+
     outWS.Activate
     MsgBox "Contingency table and grouped bar chart created.", vbInformation
 
@@ -170,7 +197,7 @@ End Function
 Sub BubbleSort(arr() As String)
     Dim i As Long, j As Long
     Dim temp As String
-    For i = 0 To UBound(arr) - 1
+    For i = LBound(arr) To UBound(arr) - 1
         For j = i + 1 To UBound(arr)
             If arr(i) > arr(j) Then
                 temp = arr(i)
