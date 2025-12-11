@@ -1,3 +1,5 @@
+Option Explicit
+
 Sub LineChart_Averages()
 
     Dim ws As Worksheet, outWS As Worksheet
@@ -13,25 +15,39 @@ Sub LineChart_Averages()
     Dim nVars As Long
     Dim v As Variant
     Dim found As Boolean
-    Dim lastSelCol As Long
+    Dim ar As Range, oneCol As Range
+    Dim selCols As Range
+    Dim colIndex As Long
 
-    '===== selection: ONE OR MORE numeric columns; group is fixed in column A =====
-    If Selection Is Nothing Then
+    '===== selection: ONE OR MORE columns; allow disjoint =====
+    If TypeName(Selection) <> "Range" Then
         MsgBox "Select at least ONE numeric column.", vbExclamation
-        Exit Sub
-    End If
-    If Selection.Columns.count < 1 Then
-        MsgBox "Select at least ONE numeric column.", vbExclamation
-        Exit Sub
-    End If
-    If Selection.Areas.count > 1 Then
-        MsgBox "Use one continuous block of columns (no disjoint selections).", vbExclamation
         Exit Sub
     End If
 
     Set ws = ActiveSheet
 
-    'Group column is always A
+    '----- build union of selected numeric columns, EXCLUDING column A (Parity) -----
+    For Each ar In Selection.Areas
+        For Each oneCol In ar.Columns
+            If oneCol.Column <> 1 Then                    'skip Parity column A
+                If selCols Is Nothing Then
+                    Set selCols = oneCol
+                Else
+                    Set selCols = Union(selCols, oneCol)
+                End If
+            End If
+        Next oneCol
+    Next ar
+
+    If selCols Is Nothing Then
+        MsgBox "No numeric columns selected (Parity in column A is for grouping only).", vbExclamation
+        Exit Sub
+    End If
+
+    nVars = selCols.Columns.count                         'numeric variables count
+
+    'Group column is always A (Parity)
     firstCol = 1
     lastRow = ws.Cells(ws.Rows.count, firstCol).End(xlUp).row
     If lastRow < 2 Then
@@ -39,18 +55,12 @@ Sub LineChart_Averages()
         Exit Sub
     End If
 
-    'Build data range: column A (group) + selected numeric columns
-    lastSelCol = Selection.Columns(Selection.Columns.count).Column
-    Set rng = ws.Range(ws.Cells(1, firstCol), ws.Cells(lastRow, lastSelCol))
-
-    nVars = rng.Columns.count - 1          'numeric columns count
-
-    '===== collect unique groups into grpList() =====
+    '===== collect unique groups from column A =====
     ReDim grpList(0 To lastRow - 2)
     grpCount = 0
 
     For r = 2 To lastRow
-        grp = Trim(CStr(rng.Cells(r, 1).value))
+        grp = Trim(CStr(ws.Cells(r, firstCol).value))
         If grp <> "" Then
             found = False
             For i = 0 To grpCount - 1
@@ -78,24 +88,28 @@ Sub LineChart_Averages()
     ReDim sums(0 To grpCount - 1, 0 To nVars - 1)
     ReDim cnts(0 To grpCount - 1, 0 To nVars - 1)
 
-    '===== accumulate sums and counts =====
-    For r = 2 To lastRow
-        grp = Trim(CStr(rng.Cells(r, 1).value))
-        If grp <> "" Then
-            For i = 0 To grpCount - 1
-                If grpList(i) = grp Then
-                    For c = 2 To rng.Columns.count
-                        v = rng.Cells(r, c).value
-                        If isNumeric(v) And Not IsEmpty(v) And v <> "" Then
-                            sums(i, c - 2) = sums(i, c - 2) + CDbl(v)
-                            cnts(i, c - 2) = cnts(i, c - 2) + 1
+    '===== accumulate sums and counts over selected numeric columns =====
+    colIndex = 0
+    For Each ar In selCols.Areas
+        For c = 1 To ar.Columns.count
+            For r = 2 To lastRow
+                grp = Trim(CStr(ws.Cells(r, firstCol).value))
+                v = ar.Columns(c).Cells(r - 1).value      'ar starts at row 1
+                If grp <> "" Then
+                    For i = 0 To grpCount - 1
+                        If grpList(i) = grp Then
+                            If isNumeric(v) And Not IsEmpty(v) And v <> "" Then
+                                sums(i, colIndex) = sums(i, colIndex) + CDbl(v)
+                                cnts(i, colIndex) = cnts(i, colIndex) + 1
+                            End If
+                            Exit For
                         End If
-                    Next c
-                    Exit For
+                    Next i
                 End If
-            Next i
-        End If
-    Next r
+            Next r
+            colIndex = colIndex + 1
+        Next c
+    Next ar
 
     '===== create/reset output sheet "linechart" =====
     Application.DisplayAlerts = False
@@ -113,19 +127,23 @@ Sub LineChart_Averages()
         outWS.Cells(1, i + 2).value = grpList(i)
     Next i
 
-    '===== row labels from selected numeric headers =====
-    'rows 2..(nVars+1)
-    For c = 2 To rng.Columns.count
-        outWS.Cells(c, 1).value = "Average of " & rng.Cells(1, c).value
-    Next c
+    '===== row labels from selected numeric headers (Parity never appears) =====
+    colIndex = 0
+    For Each ar In selCols.Areas
+        For c = 1 To ar.Columns.count
+            outWS.Cells(colIndex + 2, 1).value = "Average of " & _
+                ws.Cells(1, ar.Columns(c).Column).value
+            colIndex = colIndex + 1
+        Next c
+    Next ar
 
-    '===== fill averages =====
+    '===== fill averages (aligned with labels) =====
     For i = 0 To grpCount - 1
-        For c = 2 To rng.Columns.count
-            If cnts(i, c - 2) > 0 Then
-                outWS.Cells(c, i + 2).value = sums(i, c - 2) / cnts(i, c - 2)
+        For c = 0 To nVars - 1
+            If cnts(i, c) > 0 Then
+                outWS.Cells(c + 2, i + 2).value = sums(i, c) / cnts(i, c)
             Else
-                outWS.Cells(c, i + 2).value = ""
+                outWS.Cells(c + 2, i + 2).value = ""
             End If
         Next c
     Next i
